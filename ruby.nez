@@ -77,7 +77,6 @@ FinalizerStatement                   = { "END" _ '{' __ $body(CompleteStatement)
 AssignmentStatement                  = { $left(LeftHandForAssignSingle) _ '=' #AssignExpr __ $right(CommandCallExpression / JumpExpressionWithArgs) }
                                      / { $left(LeftHandForAssignCalc) _ addAbbreviatedAssignmentOperator __ $right(CommandCallExpression / JumpExpressionWithArgs) }
                                      / { $left(LeftHandSideExpression) _ '=' __ $right(MultipleRightHandSideExpression) #MultipleAssign }
-                                     / { $left(LHSExpandExpression) _ '=' __ $right(RightHandSideExpression) #MultipleAssign }
                                      / { $left(MultipleLeftHandSideExpression) _ '=' __ $right(MultipleRightHandSideExpression) #MultipleAssign }
                                      / { $left(MultipleLeftHandSideExpression) _ '=' __ $right(RightHandSideExpression) #MultipleAssign }
 addAbbreviatedAssignmentOperator     = '*=' #MulAssign
@@ -204,6 +203,7 @@ addCall                              = _ '[' __ $index(IndexArguments)? __ ']' #
                                      / _ '::' __ !CONSTANT $recv(MethodName) ( _ $body(Block) )? #ApplyExpr
                                      / '::' __ $name(ConstantIdentifier) #Field
 Primary                              = StatementLikeExpression
+                                     / DefinedExpression //WithParentheses
                                      / PrimaryCallExpression
                                      / '(' __ CompleteStatement __ ')'
                                      / VariableName
@@ -213,7 +213,6 @@ Primary                              = StatementLikeExpression
                                      / HashLiteral
                                      / Literal
                                      / HereDocument
-                                     / DefinedExpressionWithParentheses
                                      / LambdaExpression
 StatementLikeExpression              = ClassExpression
                                      / ModuleExpression
@@ -234,7 +233,9 @@ StatementLikeExpression              = ClassExpression
 
 // Conditional Expressions
 DefinedExpression                    = { "defined?" __ $base(OperatorExpression) #Defined }
-DefinedExpressionWithParentheses     = { "defined?" __ '(' __ $base(Expression) __ ')' #Defined }
+                                     / { "defined?" __ '(' __ $base(Expression) __ ')' #Defined }
+//DefinedExpression                    = { "defined?" __ $base(OperatorExpression) #Defined }
+//DefinedExpressionWithParentheses     = { "defined?" __ '(' __ $base(Expression) __ ')' #Defined }
 // Control Expressions
 IfExpression                         = { "if" __ $cond(Expression) _ THEN __ $then(CompleteStatement) __ $else(ElseClause / ElsifClause)? __ "end" #IfExpr }
 THEN                                 = ( EOS __ )? "then"
@@ -262,7 +263,7 @@ SuperExpression                      = { $(DummySelf) $recv(Super) _ $param(Argu
 SuperExpressionRequireArgs           = { "super" $param(<on onlyDecorator ArgumentsWithoutParenetheses>) #Super }
 SuperExpressionRequireBlockArgs      = { "super" $param(<on onlyDecorator ArgumentsWithoutParenetheses>) _ $body(DoEndBlock) #Super }
 Super                                = { "super" #Super }
-YieldExpression                      = { "yield" ( '(' __ $param(ArgumentListWithoutProcedure) __ ')' )? #Yield }
+YieldExpression                      = { "yield" ( '(' __ ( $param(ArgumentListWithoutProcedure) __ )? ')' )? #Yield }
 YieldExpressionRequireArgs           = { "yield" _ $param(<on onlyDecorator ArgumentListWithoutProcedure>) !( _ '{' ) #Yield }
 ReturnExpression                     = { "return" #RReturnStmt }
 ReturnExpressionWithArgs             = { "return" _ $expr(<on onlyDecorator ArgumentListWithoutProcedure>) #RReturnStmt }
@@ -282,7 +283,7 @@ Path                                 = ScopedConstant
                                      / { $path(PrimaryExpressionForPath) _ '::' __ $name(ConstantIdentifier) #NestedName }
                                      / ConstantIdentifier
 SuperClass                            = Expression
-ModuleExpression                     = { "module" __ $name(Path) __ $body(BodyStatement) __ "end" #Module }
+ModuleExpression                     = { "module" __ $name(Path) EOS __ $body(BodyStatement) __ "end" #Module }
 
 // Function
 FunctionDefinition                   = { "def" __ $name(DefinedFunctionName) _ $param(FunctionParameters) __ $body(BodyStatement) __ "end" #FuncDecl } // TODO avoid cannot inner func nonterminal
@@ -376,6 +377,7 @@ OCT                                  = [0-7_]
 StringLiteral                        = { ["] $String( { DoubleStringCharacter* #StringExpr } ) ["] ( _ ["] $String( { DoubleStringCharacter* #StringExpr } ) ["] )+  #ConnectString }
                                      / ["] { DoubleStringCharacter* #StringExpr } ["]
                                      / ['] { SINGLE_STRING_CHARACTER* #StringExpr } [']
+                                     / '?' { ( !(SPACE/LINE_TERMINATOR) ( '\\C-' / '\\M-' )* ( UCHAR / SOURCE ) ) #StringExpr }
 CommandStringLiteral                 = [`] { BACK_STRING_CHARACTER* #Command } [`]
 DoubleStringCharacter                = !( ["] / '\\' / '#' ) SOURCE
                                      / '#' ![$@{]
@@ -770,7 +772,7 @@ METHOD_ONLY_IDENTIFIER               = IDENTIFIER_START IDENTIFIER_PART* [!?]
 MethodName                           = { METHOD_NAME #NameExpr }
 METHOD_NAME                          = OPERATOR
                                      / METHOD_ONLY_IDENTIFIER
-                                     / KEYWORD
+                                     / KEYWORD [!?]?
                                      / IDENTIFIER
 AssignmentLikeMethodName             = { ASSIGNMENT_LIKE_METHOD_IDENTIFIER #NameExpr }
 ASSIGNMENT_LIKE_METHOD_IDENTIFIER    = IDENTIFIER "="
@@ -778,7 +780,7 @@ ASSIGNMENT_LIKE_METHOD_IDENTIFIER    = IDENTIFIER "="
 Symbol                               = ':' _ { SYMBOL_NAME #NameExpr }
 SymbolForHash                        = { SYMBOL_NAME #NameExpr } ":"
 SYMBOL_NAME                          = OPERATOR
-                                     / KEYWORD
+                                     / KEYWORD [!?]?
                                      / ["] DoubleStringCharacter* ["]
                                      / ['] SINGLE_STRING_CHARACTER* [']
                                      / ASSIGNMENT_LIKE_METHOD_IDENTIFIER
@@ -809,7 +811,7 @@ OPERATOR                             = "^"
                                     // / "-@"
                                      / "[]"
                                      / "[]="
-                                    // / "`"
+                                     / "`"
 
 KEYWORD                              = "alias"
                                      / "and"
@@ -887,7 +889,7 @@ HEX                                  = [0-9a-fA-F_]
 "<="                                 = '<='
 "**"                                 = '**'
 "~"                                  = '~'
-//"`"                                  = '`'
+"`"                                  = '`'
 //"+@"                                 = '+@'
 //"-@"                                 = '-@'
 "[]"                                 = '[]' ![=]
