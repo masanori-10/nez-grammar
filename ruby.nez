@@ -108,6 +108,7 @@ addTargetForAssignCalc               = _ '[' __ $index(IndexArguments)? __ ']' #
                                      / _ '::' __ $name(LocalIdentifier) #Field
 PrimaryTarget                        = VariableName
                                      / ScopedConstant
+                                     / BuiltInVariable
 MultipleLeftHandSideExpression       = { addMultipleLHSList ( $item(LHSExpandExpression) / $item(LHSListItem) )? #MultipleLeftHandSideExpression }
                                      / GroupingLHSExpression
                                      / LHSExpandExpression
@@ -149,8 +150,8 @@ CommandWithDoBlock                   = { $base(PrimaryExpressionForCommand) _ ad
                                      / { $(DummySelf) $recv(Identifier) $param(<on onlyDecorator ArgumentsWithoutParenetheses>) _ $body(DoEndBlock) #ApplyExpr }
                                      / SuperExpressionRequireBlockArgs
 ChainedCommand                       = CommandWithDoBlock {$base __ addChainMethdCall }*
-addChainMethdCall                    = ('.' / '::') __ $recv(MethodName) _ $param(Arguments)? #ApplyExpr
-addChainMethdCallWithoutParentheses  = ( __ '.' / '::') __ $recv(MethodName) $param(<on onlyDecorator ArgumentsWithoutParenetheses>) #ApplyExpr
+addChainMethdCall                    = ('&' / '.' / '::') __ $recv(MethodName) _ $param(Arguments)? #ApplyExpr
+addChainMethdCallWithoutParentheses  = ( __ '&' / __ '.' / '::') __ $recv(MethodName) $param(<on onlyDecorator ArgumentsWithoutParenetheses>) #ApplyExpr
 OperatorExpression                   = AssignmentExpression
                                      / DefinedExpression
                                      / ConditionalExpression
@@ -194,12 +195,13 @@ addUnaryOperator                     = "+" #Plus
                                      / "~" #ComplExpr
                                      / "!" #NotExpr
 PrimaryExpression                    = Primary {$recv addCall }*
-PrimaryExpressionForLeftHand         = Primary {$recv addCall &( ( _ '[' / __ '.' / _ '::') ) }*
-PrimaryExpressionForCommand          = Primary {$recv addCall &( __ ('.' / '::') ) }* // TODO [ . .
+PrimaryExpressionForLeftHand         = Primary {$recv addCall &( ( _ '[' / __ '&' / __ '.' / _ '::') ) }*
+PrimaryExpressionForCommand          = Primary {$recv addCall &( __ ( '&' / '.' / '::') ) }* // TODO [ . .
 PrimaryExpressionForPath             = Primary {$recv addCall &( _ '::' ) }* // TODO . . ::
 addCall                              = _ '[' __ $index(IndexArguments)? __ ']' #Indexer
                                      / _ '::' __ $recv(MethodName) _ $param(Arguments) ( _ $body(Block) )? #ApplyExpr
                                      / __ '.' __ $recv(MethodName) _ $param(Arguments)? ( _ $body(Block) )? #ApplyExpr
+                                     / __ '&.' __ $recv(MethodName) _ $param(Arguments)? ( _ $body(Block) )? #ApplyExpr
                                      / _ '::' __ !CONSTANT $recv(MethodName) ( _ $body(Block) )? #ApplyExpr
                                      / '::' __ $name(ConstantIdentifier) #Field
 Primary                              = StatementLikeExpression
@@ -297,11 +299,11 @@ addParameterList                     = $param(ProcedureParameter)
                                      / addKeywordParameters ( __ ',' __ $param(OptionHashParameter) )? ( __ ',' __ $param(ProcedureParameter) )?
                                      / $param(VariadicParameter) ( __ ',' __ addParameterList2 )?
                                      / addOptionalParameters ( __ ',' __ $param(VariadicParameter) )? ( __ ',' __ addParameterList2 )?
-                                     / $param( { $name(LocalIdentifier) #Param } ) ( __ ',' __ addParameterList )?
+                                     / $param( { $param(Parameter) #Param } ) ( __ ',' __ addParameterList )?
 addParameterList2                    = $param(ProcedureParameter)
                                      / $param(OptionHashParameter) ( __ ',' __ $param(ProcedureParameter) )?
                                      / addKeywordParameters ( __ ',' __ $param(OptionHashParameter) )? ( __ ',' __ $param(ProcedureParameter) )?
-                                     / $param( { $name(LocalIdentifier) #Param } ) ( __ ',' __ addParameterList2 )?
+                                     / $param( { $param(Parameter) #Param } ) ( __ ',' __ addParameterList2 )?
 addOptionalParameters                = $param(OptionalParameter) ( __ ',' __ $param(OptionalParameter) )*
 OptionalParameter                    = { $name(LocalIdentifier) __ "=" __ $default(OperatorExpression) #OptionalParam }
 VariadicParameter                    = { "*" ( __ $name(LocalIdentifier) )? #VariadicParam }
@@ -309,6 +311,8 @@ addKeywordParameters                 = $param(KeywordParameter) ( __ ',' __ $par
 KeywordParameter                     = { $name(LocalIdentifier) ":" ( __ $default(OperatorExpression) )? #KeywordParam }
 OptionHashParameter                  = { "**" ( __ $name(LocalIdentifier) )? #OptionHashParam }
 ProcedureParameter                   = { "&" __ $name(LocalIdentifier) #ProcedureParam }
+Parameter                            = '(' { __ addParameterList #List } __ ')'
+                                     / LocalIdentifier
 TargetClass                          = VariableName
                                      / PseudoVariable
                                      / '(' __ Expression __ ')'
@@ -322,7 +326,7 @@ Arguments                            = '(' __ ')' { #Empty }
 
 ArgumentsWithoutParenetheses         = !addFaultAvoider _ { addArgumentList #List } //!( _ '{' )
 addFaultAvoider                      = [(&+*/%]
-                                     / '<<' / '-' / _ '['
+                                     / '<<' / '-' / '['
                                      / _ [&+*/%] SP
                                      / _ ( '<<' / '-' ) SP
 addArgumentList                      = $command(Command)
@@ -377,7 +381,7 @@ OCT                                  = [0-7_]
 StringLiteral                        = { ["] $String( { DoubleStringCharacter* #StringExpr } ) ["] ( _ ["] $String( { DoubleStringCharacter* #StringExpr } ) ["] )+  #ConnectString }
                                      / ["] { DoubleStringCharacter* #StringExpr } ["]
                                      / ['] { SINGLE_STRING_CHARACTER* #StringExpr } [']
-                                     / '?' { ( !(SPACE/LINE_TERMINATOR) ( '\\C-' / '\\M-' )* ( UCHAR / SOURCE ) ) #StringExpr }
+                                     / '?' { ( !(SPACE/LINE_TERMINATOR) ( '\\C-' / '\\M-' )* ( '\\' ESCAPE_SEQUENCE / SOURCE ) ) #StringExpr }
 CommandStringLiteral                 = [`] { BACK_STRING_CHARACTER* #Command } [`]
 DoubleStringCharacter                = !( ["] / '\\' / '#' ) SOURCE
                                      / '#' ![$@{]
@@ -751,8 +755,8 @@ PseudoVariable                       = SelfExpression
                                      / EncodingExpression
                                      / FileExpression
                                      / LineExpression
-                                     / MatchedRegex
                                      / BuiltInVariable
+                                     / MatchedRegex
 SelfExpression                       = { "self" ![!?] #Self }
 TrueExpression                       = { "true" ![!?] #TrueExpr }
 FalseExpression                      = { "false" ![!?] #FalseExpr }
